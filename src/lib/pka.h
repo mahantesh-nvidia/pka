@@ -888,9 +888,8 @@ int pka_ecc_pt_mult(pka_handle_t   handle,
 ///                    curve parameters a, b, and p where p must be prime.
 /// @param point       A pointer to an ecc_point_t object, which supplies the
 ///                    x and y coordinates (as big integer) for the first point.
-///                    This is either a base point for the curve or remote public key. 
 /// @param private_key big integer indicating the number of times that point
-///                    should be added to itself. In case of ECDH this the local
+///                    should be added to itself. In case of ECDH this is the local
 ///                    private key.
 ///
 /// @return            0 on success, a negative error code on failure.
