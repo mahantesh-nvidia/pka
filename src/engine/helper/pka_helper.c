@@ -166,6 +166,79 @@ static pka_operand_t *malloc_operand(uint32_t buf_len)
     return operand;
 }
 
+// ECC related helpers
+//
+static void make_operand_ecc(PKA_ULONG     *bn_buf_ptr,
+                             uint32_t       buf_len,
+                             uint32_t       buf_max_len,
+                             uint8_t        big_endian,
+                             pka_operand_t *operand)
+{
+    if(operand == NULL)
+        return;
+
+    if (!bn_buf_ptr || (buf_max_len == 0))
+        return;
+
+    memset(operand, 0, sizeof(pka_operand_t));
+    operand->big_endian = big_endian;
+
+    // Now init the operand buffer
+    operand->buf_ptr    = malloc(buf_max_len);
+    operand->buf_len    = buf_max_len;
+    memset(operand->buf_ptr, 0, buf_max_len);
+
+    // Now fill the operand buf.
+    operand_byte_copy(operand, (uint8_t *) bn_buf_ptr, buf_len);
+
+}
+static void bignum_to_ecc_operand(pka_bignum_t  *bignum,
+                                  pka_operand_t *operand)
+{
+    if(operand == NULL)
+        return;
+
+    uint32_t byte_len, byte_max_len;
+
+    if (bignum)
+    {
+        byte_len     = bignum->top  * PKA_BYTES;
+        byte_max_len = bignum->dmax * PKA_BYTES;
+
+        make_operand_ecc(bignum->d, byte_len, byte_max_len, 0, operand);
+    }
+    return;
+}
+
+static void malloc_ecc_pt_operand(uint32_t       buf_len,
+                                  pka_operand_t *operand)
+{
+    if(operand == NULL)
+        return;
+
+    memset(operand, 0, sizeof(pka_operand_t));
+    operand->buf_ptr    = malloc(buf_len);
+    memset(operand->buf_ptr, 0, buf_len);
+    operand->buf_len    = buf_len;
+    operand->actual_len = 0;
+
+    return;
+}
+
+static ecc_point_t *malloc_ecc_point(uint32_t x_buf_len,
+                                     uint32_t y_buf_len)
+{
+    ecc_point_t *point;
+
+    point = malloc(sizeof(ecc_point_t));
+    memset(point, 0, sizeof(ecc_point_t));
+
+    malloc_ecc_pt_operand(x_buf_len, &point->x);
+    malloc_ecc_pt_operand(y_buf_len, &point->y);
+    
+    return point;
+}
+
 static void free_operand(pka_operand_t *operand)
 {
     uint8_t *buf_ptr;
@@ -179,6 +252,31 @@ static void free_operand(pka_operand_t *operand)
         free(buf_ptr);
 
     free(operand);
+}
+
+static void free_ecc_operand(pka_operand_t *operand)
+{
+    uint8_t *buf_ptr;
+
+    if (operand == NULL)
+        return;
+
+    buf_ptr = operand->buf_ptr;
+
+    if (buf_ptr != NULL)
+        free(buf_ptr);
+
+}
+
+static void free_ecc_point(ecc_point_t *point)
+{
+    if (point == NULL)
+        return;
+
+    free_ecc_operand(&point->x);
+    free_ecc_operand(&point->y);
+
+    free(point);
 }
 
 #ifdef VERBOSE_MODE
@@ -297,6 +395,32 @@ static void init_results_operand(pka_results_t *results,
     }
 }
 
+static ecc_point_t *results_to_ecc_point(pka_handle_t handle)
+{
+    pka_results_t  results;
+    ecc_point_t    *result_ptr;
+    uint32_t       result_x_len, result_y_len;
+    uint8_t        x_buf[MAX_BYTE_LEN], y_buf[MAX_BYTE_LEN];
+
+    memset(&results, 0, sizeof(pka_results_t));
+    init_results_operand(&results, 2, x_buf, MAX_BYTE_LEN,
+                         y_buf, MAX_BYTE_LEN);
+
+    pka_wait_for_results(handle, &results);
+    if (results.status != RC_NO_ERROR)
+    {
+        PKA_ERROR(PKA_TESTS, "pka_get_result status=0x%x\n", results.status);
+        return NULL;
+    }
+
+    result_x_len = results.results[0].actual_len;
+    result_y_len = results.results[1].actual_len;
+    result_ptr   = malloc_ecc_point(result_x_len, result_y_len);
+    copy_operand(&results.results[0], &result_ptr->x);
+    copy_operand(&results.results[1], &result_ptr->y);
+    return result_ptr;
+}
+
 static pka_operand_t *results_to_operand(pka_handle_t handle)
 {
     pka_results_t  results;
@@ -344,7 +468,7 @@ static void set_bignum(pka_bignum_t *bn, pka_operand_t *operand)
 //
 // Synchronous PKA implementation
 //
-
+//
 static pka_operand_t *pka_do_mod_exp(pka_handle_t   handle,
                                      pka_operand_t *value,
                                      pka_operand_t *exponent,
@@ -399,6 +523,67 @@ static pka_operand_t *pka_do_mod_exp_crt(pka_handle_t   handle,
     }
 
     return results_to_operand(handle);
+}
+
+static ecc_point_t *pka_do_ecc_pt_mult(pka_handle_t   handle,
+                                       ecc_curve_t   *curve,
+                                       ecc_point_t   *point,
+                                       pka_operand_t *multiplier)
+{
+    int rc;
+
+    PKA_ASSERT(curve      != NULL);
+    PKA_ASSERT(point      != NULL);
+    PKA_ASSERT(multiplier != NULL);
+
+    rc = pka_ecc_pt_mult(handle, NULL, curve, point, multiplier);
+
+    if (SUCCESS != rc)
+    {
+        DEBUG(PKA_D_ERROR, "pka_ecc_pt_mult failed, rc=%d\n", rc);
+#ifdef VERBOSE_MODE
+        print_operand("  curve:p    =", curve->p,    "\n");
+        print_operand("  curve:a    =", curve->a,    "\n");
+        print_operand("  curve:b    =", curve->b,    "\n");
+        print_operand("  point:x    =", point->x,    "\n");
+        print_operand("  point:y    =", point->y,    "\n");
+        print_operand("  multiplier =", multiplier,  "\n");
+#endif
+        return NULL;
+    }
+
+    return results_to_ecc_point(handle);
+}
+
+static ecc_point_t *pka_do_ecc_pt_add(pka_handle_t   handle,
+                                       ecc_curve_t   *curve,
+                                       ecc_point_t   *pointA,
+                                       ecc_point_t   *pointB)
+{
+    int rc;
+
+    PKA_ASSERT(curve  != NULL);
+    PKA_ASSERT(pointA != NULL);
+    PKA_ASSERT(pointB != NULL);
+
+    rc = pka_ecc_pt_add(handle, NULL, curve, pointA, pointB);
+
+    if (SUCCESS != rc)
+    {
+        DEBUG(PKA_D_ERROR, "pka_ecc_pt_add failed, rc=%d\n", rc);
+#ifdef VERBOSE_MODE
+        print_operand("  curve:p    =", curve->p,    "\n");
+        print_operand("  curve:a    =", curve->a,    "\n");
+        print_operand("  curve:b    =", curve->b,    "\n");
+        print_operand("  point A:x  =", pointA->x,   "\n");
+        print_operand("  point A:y  =", pointA->y,   "\n");
+        print_operand("  point B:x  =", pointB->x,   "\n");
+        print_operand("  point B:y  =", pointB->y,   "\n");
+#endif
+        return NULL;
+    }
+
+    return results_to_ecc_point(handle);
 }
 
 //
@@ -625,6 +810,111 @@ int pka_rsa_mod_exp_crt(pka_bignum_t  *bn_value,
     free_operand(d_q);
     free_operand(qinv);
     free_operand(result);
+
+    return rc;
+}
+
+int pka_ecc_bn_pt_mult(pka_bignum_t *p,
+                       pka_bignum_t *a,
+                       pka_bignum_t *b,
+                       pka_bignum_t *x,
+                       pka_bignum_t *y,
+                       pka_bignum_t *multiplier,
+                       pka_bignum_t *bn_result_x,
+                       pka_bignum_t *bn_result_y,
+                       int print_val)
+{
+    pka_operand_t  *mltpr;
+    ecc_point_t     pt, *result;
+    ecc_curve_t     curve;
+    int rc;
+
+    bignum_to_ecc_operand(p, &(curve.p));
+    bignum_to_ecc_operand(a, &(curve.a));
+    bignum_to_ecc_operand(b, &(curve.b));
+    bignum_to_ecc_operand(x, &(pt.x));
+    bignum_to_ecc_operand(y, &(pt.y));
+    mltpr  = bignum_to_operand(multiplier);
+
+    result = pka_do_ecc_pt_mult(tls_handle, &curve, &pt, mltpr);
+
+    if(result)
+    {
+        set_bignum(bn_result_x, &result->x);
+        set_bignum(bn_result_y, &result->y);
+        rc = 1;
+    }
+    else
+    {
+        rc = 0;
+    }
+
+    if(print_val)
+    {
+        print_operand("  curve:p    =", &curve.p,    "\n");
+        print_operand("  curve:a    =", &curve.a,    "\n");
+        print_operand("  curve:b    =", &curve.b,    "\n");
+        print_operand("  point:x    =", &pt.x,    "\n");
+        print_operand("  point:y    =", &pt.y,    "\n");
+        print_operand("  multiplier =", mltpr,       "\n");
+        print_operand("  result:x   =", &result->x,   "\n");
+        print_operand("  result:y   =", &result->y,   "\n");
+    }
+
+    free_ecc_operand(&(curve.p));
+    free_ecc_operand(&(curve.a));
+    free_ecc_operand(&(curve.b));
+    free_ecc_operand(&(pt.x));
+    free_ecc_operand(&(pt.y));
+    free_ecc_operand(mltpr);
+    free_ecc_point(result);
+
+    return rc;
+}
+
+int pka_ecc_bn_pt_add(pka_bignum_t *p,
+                      pka_bignum_t *a,
+                      pka_bignum_t *b,
+                      pka_bignum_t *x1,
+                      pka_bignum_t *y1,
+                      pka_bignum_t *x2,
+                      pka_bignum_t *y2,
+                      pka_bignum_t *xr,
+                      pka_bignum_t *yr)
+{
+    ecc_point_t     ptA, ptB, *result;
+    ecc_curve_t     curve;
+    int rc;
+    
+    bignum_to_ecc_operand(p, &(curve.p));
+    bignum_to_ecc_operand(a, &(curve.a));
+    bignum_to_ecc_operand(b, &(curve.b));
+    bignum_to_ecc_operand(x1, &(ptA.x));
+    bignum_to_ecc_operand(y1, &(ptA.y));
+    bignum_to_ecc_operand(x2, &(ptB.x));
+    bignum_to_ecc_operand(y2, &(ptB.y));
+
+    result = pka_do_ecc_pt_add(tls_handle, &curve, &ptA, &ptB);
+
+    if(result)
+    {
+        set_bignum(xr, &result->x);
+        set_bignum(yr, &result->y);
+        rc = 1;
+    }
+    else
+    {
+        rc = 0;
+    }
+
+    free_ecc_operand(&(curve.p));
+    free_ecc_operand(&(curve.a));
+    free_ecc_operand(&(curve.b));
+    free_ecc_operand(&(ptA.x));
+    free_ecc_operand(&(ptA.y));
+    free_ecc_operand(&(ptB.x));
+    free_ecc_operand(&(ptB.y));
+    free_ecc_point(result);
 
     return rc;
 }
