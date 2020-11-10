@@ -2168,3 +2168,41 @@ int pka_dsa_signature_verify(pka_handle_t     handle,
         return pka_submit_cmd(handle, user_data, CC_DSA_VERIFY, &operands);
 }
 
+int pka_get_rand_bytes(pka_handle_t  handle,
+                       uint8_t      *buf,
+                       int           buf_len)
+{
+    pka_global_info_t   *gbl_info;
+    pka_local_info_t    *local_info;
+    pka_ring_info_t     *ring_info;
+    pka_dev_trng_info_t  trng_info;
+    uint32_t             avail_descs_num;
+    int                  ret;
+
+    if (handle == NULL || buf == NULL || buf_len <= 0)
+	return 0;
+
+    local_info = (pka_local_info_t *)handle;
+    gbl_info   = local_info->gbl_info;
+
+    ring_info = pka_has_available_ring(gbl_info->rings, gbl_info->rings_cnt, 0,
+                    &avail_descs_num);
+
+    if (!ring_info)
+    {
+        PKA_DEBUG(PKA_USER, "there are no rings available\n");
+        return 0;
+    }
+
+    trng_info.data  = buf;
+    trng_info.count = (uint32_t)buf_len;
+
+    ret = ioctl(ring_info->fd, PKA_GET_RANDOM_BYTES, &trng_info);
+    if (ret)
+    {
+        PKA_ERROR(PKA_USER, "Error(%d) getting random number.\n", ret);
+        return 0;
+    }
+
+    return buf_len;
+}

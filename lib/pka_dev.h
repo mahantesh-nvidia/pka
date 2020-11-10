@@ -302,4 +302,7 @@ int pka_dev_mmap_ring(pka_ring_info_t *ring_info);
 /// Unmap ring resources.
 int pka_dev_munmap_ring(pka_ring_info_t *ring_info);
 
+/// Read random bytes from TRNG.
+int pka_dev_shim_get_random_bytes(uint32_t *data, uint32_t cnt);
+
 #endif /// __PKA_DEV_H__

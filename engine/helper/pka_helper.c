@@ -974,6 +974,24 @@ int  pka_bn_mod_inv(pka_bignum_t *bn_value,
 
     return rc;
 }
+
+int pka_get_random_bytes(uint8_t *buf,
+                         int      len)
+{
+    int rc;
+
+    PKA_ASSERT(buf != NULL);
+    PKA_ASSERT(len > 0);
+
+    return_if_handle_invalid(tls_handle);
+
+    rc = pka_get_rand_bytes(tls_handle, buf, len);
+#ifdef VERBOSE_MODE
+    printf("\nRead %d random bytes\n", rc);
+#endif
+    return rc;
+}
+
 int pka_init(void)
 {
     int ret;

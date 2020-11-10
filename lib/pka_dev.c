@@ -1687,6 +1687,37 @@ bool pka_dev_has_trng(pka_dev_shim_t *shim)
     return (shim->trng_enabled == PKA_SHIM_TRNG_ENABLED);
 }
 
+int pka_dev_shim_get_random_bytes(uint32_t *data, uint32_t cnt)
+{
+    pka_dev_shim_t *shim;
+    uint32_t        shim_id;
+    int             ret;
+    bool            trng_present;
+
+    ret = -ENOENT;
+    for (shim_id = 0; shim_id < PKA_MAX_NUM_IO_BLOCKS; shim_id++)
+    {
+        shim = pka_dev_get_shim(shim_id);
+        trng_present = pka_dev_has_trng(shim);
+        if (trng_present)
+        {
+            ret = pka_dev_trng_read(shim, data, cnt);
+            if (!ret)
+                return ret;
+            else if (ret == -EINVAL)
+            {
+                PKA_DEBUG(PKA_DEV, "Invalid i/p for random number generation.\n");
+                return ret;
+            }
+
+            PKA_DEBUG(PKA_DEV, "%d: error getting random number from shim %u.\n",
+                ret, shim_id);
+        }
+    }
+
+    return ret;
+}
+
 #endif // __KERNEL__
 
 #ifndef __KERNEL__
