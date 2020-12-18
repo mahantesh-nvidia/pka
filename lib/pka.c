@@ -281,6 +281,7 @@ pka_instance_t pka_init_global(const char *name,
                                uint32_t    result_queue_size)
 {
     uintptr_t shmem_addr;
+    uint64_t  start_id;
     uint32_t  shmem_size;
     uint8_t  *shmem_ptr;
     char     *shmem_name;
@@ -344,6 +345,9 @@ pka_instance_t pka_init_global(const char *name,
         goto exit_shmem_close;
     }
 
+    // Get the start_id from name, start_id represents the ring number
+    // from which the ring lookup begins.
+    start_id     = (uint64_t)atoi(name);
     // Allocate PKA context
     shmem_addr   = (uintptr_t) shmem_ptr;
     pka_gbl_info = (pka_global_info_t *) shmem_addr;
@@ -361,7 +365,8 @@ pka_instance_t pka_init_global(const char *name,
     ret = pka_ring_lookup(pka_gbl_info->rings, ring_cnt,
                           pka_gbl_info->rings_byte_order,
                           &pka_gbl_info->rings_mask,
-                          &pka_gbl_info->rings_cnt);
+                          &pka_gbl_info->rings_cnt,
+			  start_id);
     if (ret)
     {
         PKA_DEBUG(PKA_USER, "failed to retrieve free rings\n");

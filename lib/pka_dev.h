@@ -245,7 +245,8 @@ int pka_dev_get_ring_info(pka_ring_info_t *ring_info);
 /// true, otherwise it returns false. The input parameter rings_num refers
 /// to the number of rings to look for.
 bool pka_dev_has_avail_ring(pka_ring_info_t *ring_info,
-                            uint32_t         rings_num);
+                            uint32_t         rings_num,
+			    uint64_t         start_id);
 #endif
 
 #ifdef __KERNEL__

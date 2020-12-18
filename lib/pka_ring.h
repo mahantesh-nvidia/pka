@@ -293,7 +293,8 @@ int pka_ring_lookup(pka_ring_info_t rings[],
                     uint32_t        req_rings_num,
                     uint8_t         byte_order,
                     uint32_t        *mask,
-                    uint32_t        *cnt);
+                    uint32_t        *cnt,
+		    uint64_t        start_id);
 
 /// Free a set of assigned rings, referred by their number (cnt), their mask.
 /// It returns 0 on success, a negative error code on failure.

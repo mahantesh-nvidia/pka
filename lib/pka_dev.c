@@ -1705,7 +1705,8 @@ static uint32_t next_ring_id = 0;
 
 // Verify if there is an available ring.
 bool pka_dev_has_avail_ring(pka_ring_info_t *ring_info,
-                            uint32_t         rings_num)
+                            uint32_t         rings_num,
+			    uint64_t         start_id)
 {
     uint32_t errors;
 
@@ -1720,6 +1721,12 @@ bool pka_dev_has_avail_ring(pka_ring_info_t *ring_info,
         }
         else
         {
+	    if (next_ring_id == 0 && start_id > 1)
+            {
+		// 8 below is the number of rings allocated per instance of engine
+	        next_ring_id = 8 * (start_id - 1);
+	    }
+
             ring_info->ring_id  = next_ring_id * PKA_MAX_NUM_IO_BLOCK_RINGS;
             ring_info->ring_id %= PKA_MAX_NUM_RINGS - 1;
             next_ring_id       += 1;

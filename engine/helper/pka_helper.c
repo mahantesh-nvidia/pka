@@ -31,11 +31,23 @@
 //   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "pka_helper.h"
 
+#define LOCK_FILE "/var/lock/pka"
+#define UPPER_RAND_LIM 10000
+#define LOWER_RAND_LIM 0
 #define return_if_instance_invalid(inst)                    \
 ({                                                          \
     if ((inst) == PKA_INSTANCE_INVALID || (inst) ==0)       \
@@ -656,18 +668,68 @@ static int pka_engine_get_instance(pka_engine_info_t *engine)
     pka_instance_t  instance;
     uint32_t        cmd_queue_sz, rslt_queue_sz;
     uint8_t         queue_cnt, ring_cnt, flags;
+    uint64_t        rand_num;
+    char            rand_name[64];
+    int             shmid, read;
+    char           *shm;
+    int             fd;
+
+    read = 0;
+    //printf("\n DEBUG: Inside get instance \n");
 
     PKA_ASSERT(engine   != NULL);
+
+    // lock here
+    fd = open(LOCK_FILE, O_CREAT|O_RDONLY, S_IRUSR|S_IRGRP|S_IROTH);
+    flock(fd, LOCK_EX);
+
+
+    //printf("\n DEBUG: create shmid \n");
+    shmid = shmget(2020, sizeof(uint64_t), 0666 | IPC_CREAT | IPC_EXCL);
+    if ( shmid == -1 && errno == EEXIST){
+        //printf("\n DEBUG: get shmid \n");
+        shmid = shmget(2020, sizeof(uint64_t), 0);
+        read  = 1;
+    }
+    //printf("\n DEBUG: attach shmid \n");
+    shm = shmat(shmid, 0, 0);
+
+    if (read == 0)
+    {
+	char *s       = (char *)shm;
+	*s            = '\0';
+    
+	rand_num = 1;
+        sprintf(shm, "%s%ld", s, rand_num);
+        //printf("\n Created Shared memory and wrote instance information = %ld \n", instance);
+    }
+    else
+    {
+	char *s       = (char *)shm;
+        rand_num = strtoul(shm, NULL, 10); 
+	//printf("\n Rand number is %ld \n", rand_num);
+	rand_num++;
+	//printf("\n Rand number is %ld \n", rand_num);
+	*s            = '\0';
+	sprintf(shm, "%s%ld", s, rand_num);
+    }
+
+    shmdt(shm);
+    //unlock here
+    flock(fd, LOCK_UN);
+    close(fd);
 
     if (!engine->valid)
     {
         // Init the PKA instance before calling anything else
-        flags         = PKA_F_PROCESS_MODE_MULTI | PKA_F_SYNC_MODE_ENABLE;
+	snprintf(rand_name, 64, "%ld%s", rand_num, PKA_ENGINE_INSTANCE_NAME);
+	//printf("\n RAND name is = %s \n", rand_name);
+        flags         = PKA_F_PROCESS_MODE_MULTI | PKA_F_SYNC_MODE_DISABLE;
         ring_cnt      = PKA_ENGINE_RING_CNT;
         queue_cnt     = PKA_ENGINE_QUEUE_CNT;
         cmd_queue_sz  = PKA_MAX_OBJS * PKA_CMD_DESC_MAX_DATA_SIZE;
         rslt_queue_sz = PKA_MAX_OBJS * PKA_RSLT_DESC_MAX_DATA_SIZE;
-        instance      = pka_init_global(PKA_ENGINE_INSTANCE_NAME,
+        instance      = pka_init_global(rand_name,
                                         flags,
                                         ring_cnt,
                                         queue_cnt,
@@ -684,9 +746,29 @@ static int pka_engine_get_instance(pka_engine_info_t *engine)
 static void pka_engine_put_instance(pka_engine_info_t *engine)
 {
     PKA_ASSERT(engine != NULL);
+    int shmid;
+    int fd;
 
     pka_term_global(engine->instance);
     reset_pka_instance(engine->instance);
+    //lock here
+    fd = open(LOCK_FILE, O_CREAT|O_RDONLY, S_IRUSR|S_IRGRP|S_IROTH);
+    flock(fd, LOCK_EX);
+
+    shmid = shmget(2020, sizeof(uint64_t), 0);
+    if (shmid == -1 && errno == ENOENT)
+    {
+        //printf("\n Shared memory doesn't exist \n");
+    }
+    else
+    {
+        shmctl(shmid, IPC_RMID, NULL);
+    }
+
+    // unlock here 
+    flock(fd, LOCK_UN);
+    close(fd);
+    //pm_disable();
 }
 
 // This function resets a crypto engine.

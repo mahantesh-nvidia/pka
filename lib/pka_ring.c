@@ -140,7 +140,8 @@ int pka_ring_lookup(pka_ring_info_t rings[],
                     uint32_t        req_rings_num,
                     uint8_t         byte_order,
                     uint32_t       *mask,
-                    uint32_t       *cnt)
+                    uint32_t       *cnt,
+		    uint64_t        start_id)
 {
     pka_ring_info_t *ring;
     uint32_t         ring_idx;
@@ -187,7 +188,7 @@ int pka_ring_lookup(pka_ring_info_t rings[],
         ring->container = container;
 
         // Check for an available ring.
-        if (!pka_dev_has_avail_ring(ring, (req_rings_num - *cnt)))
+        if (!pka_dev_has_avail_ring(ring, (req_rings_num - *cnt), start_id))
         {
             PKA_DEBUG(PKA_RING, "failed to find available ring %d\n",
                             ring_idx);
